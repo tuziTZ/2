@@ -18,7 +18,9 @@ def new_order():
         id_and_count.append((book_id, count))
 
     b = Buyer()
-    code, message, order_id = b.new_order(user_id, store_id, id_and_count)
+    r=b.new_order(user_id, store_id, id_and_count)
+    print(r)
+    code, message, order_id = r
     return jsonify({"message": message, "order_id": order_id}), code
 
 
@@ -39,4 +41,31 @@ def add_funds():
     add_value = request.json.get("add_value")
     b = Buyer()
     code, message = b.add_funds(user_id, password, add_value)
+    return jsonify({"message": message}), code
+
+
+@bp_buyer.route("/receive_order", methods=["POST"])
+def receive_order():
+    user_id: str = request.json.get("user_id")
+    order_id: str = request.json.get("order_id")
+
+    b = Buyer()
+    code, message = b.receive_order(user_id, order_id)
+    return jsonify({"message": message}), code
+
+
+@bp_buyer.route("/buyer_orders", methods=["POST"])
+def get_buyer_orders():
+    user_id: str = request.json.get("user_id")
+    b = Buyer()
+    code, message, orders = b.get_buyer_orders(user_id)
+    return jsonify({"message": message, "orders": orders}), code
+
+
+@bp_buyer.route("/cancel_order", methods=["POST"])
+def cancel_order():
+    user_id: str = request.json.get("user_id")
+    order_id: str = request.json.get("order_id")
+    b = Buyer()
+    code, message = b.cancel_order(user_id, order_id)
     return jsonify({"message": message}), code

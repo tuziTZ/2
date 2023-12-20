@@ -1,9 +1,11 @@
-import sqlite3 as sqlite
+import traceback
 import uuid
 import json
-import logging
+from datetime import datetime
+from sqlalchemy.exc import IntegrityError
 from be.model import db_conn
 from be.model import error
+from be.model.store import NewOrder, NewOrderDetail, User as UserModel, Store as StoreModel
 
 
 class Buyer(db_conn.DBConn):
@@ -11,7 +13,7 @@ class Buyer(db_conn.DBConn):
         db_conn.DBConn.__init__(self)
 
     def new_order(
-        self, user_id: str, store_id: str, id_and_count: [(str, int)]
+            self, user_id: str, store_id: str, id_and_count: [(str, int)]
     ) -> (int, str, str):
         order_id = ""
         try:
@@ -21,169 +23,210 @@ class Buyer(db_conn.DBConn):
                 return error.error_non_exist_store_id(store_id) + (order_id,)
             uid = "{}_{}_{}".format(user_id, store_id, str(uuid.uuid1()))
 
+            total_price = 0
+            new_order_detail_list = []
             for book_id, count in id_and_count:
-                cursor = self.conn.execute(
-                    "SELECT book_id, stock_level, book_info FROM store "
-                    "WHERE store_id = ? AND book_id = ?;",
-                    (store_id, book_id),
-                )
-                row = cursor.fetchone()
-                if row is None:
+                store_data = self.conn.query(StoreModel).filter_by(
+                    store_id=store_id,
+                    book_id=book_id
+                ).first()
+
+                if store_data is None:
                     return error.error_non_exist_book_id(book_id) + (order_id,)
 
-                stock_level = row[1]
-                book_info = row[2]
-                book_info_json = json.loads(book_info)
-                price = book_info_json.get("price")
+                stock_level = store_data.stock_level
+                price = store_data.price
 
                 if stock_level < count:
                     return error.error_stock_level_low(book_id) + (order_id,)
 
-                cursor = self.conn.execute(
-                    "UPDATE store set stock_level = stock_level - ? "
-                    "WHERE store_id = ? and book_id = ? and stock_level >= ?; ",
-                    (count, store_id, book_id, count),
-                )
-                if cursor.rowcount == 0:
-                    return error.error_stock_level_low(book_id) + (order_id,)
+                total_price += price * count
 
-                self.conn.execute(
-                    "INSERT INTO new_order_detail(order_id, book_id, count, price) "
-                    "VALUES(?, ?, ?, ?);",
-                    (uid, book_id, count, price),
-                )
+                # 扣除库存
+                store_data.stock_level -= count
 
-            self.conn.execute(
-                "INSERT INTO new_order(order_id, store_id, user_id) "
-                "VALUES(?, ?, ?);",
-                (uid, store_id, user_id),
+                # 创建订单详细信息
+                new_order_detail = NewOrderDetail(
+                    order_id=uid,
+                    book_id=book_id,
+                    count=count,
+                    price=price
+                )
+                new_order_detail_list.append(new_order_detail)
+
+            # 更新订单状态为 "unpaid"
+            new_order = NewOrder(
+                user_id=user_id,
+                store_id=store_id,
+                order_id=uid,
+                status="unpaid",
+                created_at=datetime.now().isoformat(),
+                shipped_at=None,
+                received_at=None
             )
+
+            self.conn.add_all(new_order_detail_list)
+            self.conn.add(new_order)
             self.conn.commit()
+
             order_id = uid
-        except sqlite.Error as e:
-            logging.info("528, {}".format(str(e)))
-            return 528, "{}".format(str(e)), ""
-        except BaseException as e:
-            logging.info("530, {}".format(str(e)))
+
+        except IntegrityError as e:
+            return str(e)
+        except Exception as e:
+            traceback.print_exc()
             return 530, "{}".format(str(e)), ""
 
         return 200, "ok", order_id
 
     def payment(self, user_id: str, password: str, order_id: str) -> (int, str):
-        conn = self.conn
         try:
-            cursor = conn.execute(
-                "SELECT order_id, user_id, store_id FROM new_order WHERE order_id = ?",
-                (order_id,),
-            )
-            row = cursor.fetchone()
-            if row is None:
+            order_data = self.conn.query(NewOrder).filter_by(order_id=order_id).first()
+
+            if order_data is None:
                 return error.error_invalid_order_id(order_id)
 
-            order_id = row[0]
-            buyer_id = row[1]
-            store_id = row[2]
-
-            if buyer_id != user_id:
+            if order_data.user_id != user_id:
                 return error.error_authorization_fail()
 
-            cursor = conn.execute(
-                "SELECT balance, password FROM user WHERE user_id = ?;", (buyer_id,)
-            )
-            row = cursor.fetchone()
-            if row is None:
-                return error.error_non_exist_user_id(buyer_id)
-            balance = row[0]
-            if password != row[1]:
+            if order_data.status == "paid":
+                return error.error_status_fail(order_id)
+
+            if order_data.status == "shipped":
+                return error.error_status_fail(order_id)
+
+            user_data = self.conn.query(UserModel).filter_by(user_id=user_id).first()
+            if user_data is None:
+                return error.error_non_exist_user_id(user_id)
+
+            if password != user_data.password:
                 return error.error_authorization_fail()
 
-            cursor = conn.execute(
-                "SELECT store_id, user_id FROM user_store WHERE store_id = ?;",
-                (store_id,),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                return error.error_non_exist_store_id(store_id)
+            balance = user_data.balance
 
-            seller_id = row[1]
-
-            if not self.user_id_exist(seller_id):
-                return error.error_non_exist_user_id(seller_id)
-
-            cursor = conn.execute(
-                "SELECT book_id, count, price FROM new_order_detail WHERE order_id = ?;",
-                (order_id,),
-            )
-            total_price = 0
-            for row in cursor:
-                count = row[1]
-                price = row[2]
-                total_price = total_price + price * count
+            # 获取订单详细信息
+            order_detail_data = self.conn.query(NewOrderDetail).filter_by(order_id=order_id).all()
+            total_price = sum([order_detail.price * order_detail.count for order_detail in order_detail_data])
 
             if balance < total_price:
                 return error.error_not_sufficient_funds(order_id)
 
-            cursor = conn.execute(
-                "UPDATE user set balance = balance - ?"
-                "WHERE user_id = ? AND balance >= ?",
-                (total_price, buyer_id, total_price),
-            )
-            if cursor.rowcount == 0:
-                return error.error_not_sufficient_funds(order_id)
+            # 扣款，更新用户余额
+            new_balance = balance - total_price
+            user_data.balance = new_balance
 
-            cursor = conn.execute(
-                "UPDATE user set balance = balance + ?" "WHERE user_id = ?",
-                (total_price, buyer_id),
-            )
+            # 更新订单状态为 "paid"
+            order_data.status = "paid"
 
-            if cursor.rowcount == 0:
-                return error.error_non_exist_user_id(buyer_id)
+            self.conn.commit()
 
-            cursor = conn.execute(
-                "DELETE FROM new_order WHERE order_id = ?", (order_id,)
-            )
-            if cursor.rowcount == 0:
+        except Exception as e:
+            return 530, "{}".format(str(e))
+
+        return 200, "ok"
+
+    def receive_order(self, user_id: str, order_id: str) -> (int, str):
+        try:
+            order_data = self.conn.query(NewOrder).filter_by(order_id=order_id).first()
+
+            if order_data is None:
                 return error.error_invalid_order_id(order_id)
 
-            cursor = conn.execute(
-                "DELETE FROM new_order_detail where order_id = ?", (order_id,)
-            )
-            if cursor.rowcount == 0:
-                return error.error_invalid_order_id(order_id)
+            if order_data.user_id != user_id:
+                return error.error_authorization_fail()
 
-            conn.commit()
+            if order_data.status == "received":
+                return 200, "Order is already received"
 
-        except sqlite.Error as e:
-            return 528, "{}".format(str(e))
+            if order_data.status != "shipped":
+                return error.error_status_fail(order_id)
 
-        except BaseException as e:
+            # 更新订单状态为 "received" 并记录收货时间
+            order_data.status = "received"
+            order_data.received_at = datetime.now().isoformat()
+
+            self.conn.commit()
+
+        except Exception as e:
             return 530, "{}".format(str(e))
 
         return 200, "ok"
 
     def add_funds(self, user_id, password, add_value) -> (int, str):
         try:
-            cursor = self.conn.execute(
-                "SELECT password  from user where user_id=?", (user_id,)
-            )
-            row = cursor.fetchone()
-            if row is None:
+            user_data = self.conn.query(UserModel).filter_by(user_id=user_id).first()
+
+            if user_data is None:
                 return error.error_authorization_fail()
 
-            if row[0] != password:
+            if user_data.password != password:
                 return error.error_authorization_fail()
 
-            cursor = self.conn.execute(
-                "UPDATE user SET balance = balance + ? WHERE user_id = ?",
-                (add_value, user_id),
-            )
-            if cursor.rowcount == 0:
-                return error.error_non_exist_user_id(user_id)
+            # 增加用户余额
+            user_data.balance += add_value
 
             self.conn.commit()
-        except sqlite.Error as e:
-            return 528, "{}".format(str(e))
-        except BaseException as e:
+
+        except Exception as e:
+            return 530, "{}".format(str(e))
+
+        return 200, "ok"
+
+    def get_buyer_orders(self, user_id: str) -> (int, str, list):
+        try:
+            orders = self.conn.query(NewOrder).filter_by(user_id=user_id).all()
+            buyer_orders = []
+            # print(orders)
+            for order in orders:
+                buyer_orders.append(
+                    {'store_id': order.store_id,
+                     'order_id': order.order_id,
+                     'status': order.status}
+                )
+            return 200, "ok", buyer_orders
+        except Exception as e:
+            return 530, "{}".format(str(e)), []
+
+    def cancel_order(self, user_id: str, order_id: str) -> (int, str):
+        try:
+            order_data = self.conn.query(NewOrder).filter_by(order_id=order_id).first()
+
+            if order_data is None:
+                return error.error_invalid_order_id(order_id)
+
+            if order_data.user_id != user_id:
+                return error.error_authorization_fail()
+
+            if order_data.status == "shipped" or order_data.status == "received":
+                return error.error_status_fail(order_id)
+
+            if order_data.status == "cancelled":
+                return 200, "Order is already cancelled."
+
+            if order_data.status == "paid":
+                # 获取订单详细信息
+                order_detail_data = self.conn.query(NewOrderDetail).filter_by(order_id=order_id).all()
+                total_price = sum([order_detail.price * order_detail.count for order_detail in order_detail_data])
+
+                # 更新用户余额，将付款退还给用户
+                user_data = self.conn.query(UserModel).filter_by(user_id=user_id).first()
+                if user_data is None:
+                    return error.error_non_exist_user_id(user_id)
+
+                # 计算退款金额
+                refund_amount = total_price
+                current_balance = user_data.balance
+                new_balance = current_balance + refund_amount
+
+                # 更新用户余额
+                user_data.balance = new_balance
+
+            # 取消订单，更新状态为 "cancelled"
+            order_data.status = "cancelled"
+
+            self.conn.commit()
+
+        except Exception as e:
             return 530, "{}".format(str(e))
 
         return 200, "ok"
