@@ -89,10 +89,7 @@ class Buyer(db_conn.DBConn):
             if order_data.user_id != user_id:
                 return error.error_authorization_fail()
 
-            if order_data.status == "paid":
-                return error.error_status_fail(order_id)
-
-            if order_data.status == "shipped":
+            if order_data.status != "unpaid":
                 return error.error_status_fail(order_id)
 
             user_data = self.conn.query(UserModel).filter_by(user_id=user_id).first()

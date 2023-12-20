@@ -116,8 +116,7 @@ class Seller(db_conn.DBConn):
             self.conn.commit()
 
         except IntegrityError as e:
-            print(e)
-            return error.error_exist_store_id(store_id)
+            return 528, "{}".format(str(e))
         except Exception as e:
             return 530, "{}".format(str(e))
         return 200, "ok"

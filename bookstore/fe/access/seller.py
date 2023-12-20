@@ -1,10 +1,8 @@
 import requests
 from urllib.parse import urljoin
-
-from fe import conf
 from fe.access import book
 from fe.access.auth import Auth
-
+from fe import conf
 
 class Seller:
     def __init__(self, url_prefix, seller_id: str, password: str):
@@ -34,7 +32,6 @@ class Seller:
             "book_info": book_info.__dict__,
             "stock_level": stock_level,
         }
-        print(json)
         # print(simplejson.dumps(json))
         url = urljoin(self.url_prefix, "add_book")
         headers = {"token": self.token}
@@ -42,7 +39,7 @@ class Seller:
         return r.status_code
 
     def add_stock_level(
-            self, seller_id: str, store_id: str, book_id: str, add_stock_num: int
+        self, seller_id: str, store_id: str, book_id: str, add_stock_num: int
     ) -> int:
         json = {
             "user_id": seller_id,
@@ -55,6 +52,20 @@ class Seller:
         headers = {"token": self.token}
         r = requests.post(url, headers=headers, json=json)
         return r.status_code
+
+def get_seller_order(seller_id: str):
+    json = {
+        "user_id": seller_id,
+    }
+    # url = urljoin(conf.URL, "seller")
+    # print(url)
+    # url = urljoin(url, "seller_orders")
+    url = conf.URL+'seller/seller_orders'
+    print(url)
+    r = requests.post(url, json=json)
+    print('tttttttt',r.text)
+    return r.status_code, r.json()
+
 
 def ship_order(store_id, order_id):
     json = {

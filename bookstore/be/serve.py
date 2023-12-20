@@ -25,10 +25,13 @@ def be_shutdown():
     shutdown_server()
     return "Server shutting down..."
 
+
 def start_order_auto_cancel():
     scheduler = BackgroundScheduler()
     scheduler.add_job(OrderAutoCancel().cancel_unpaid_orders, 'interval', minutes=1)  # 每隔15分钟触发一次
     scheduler.start()
+
+
 def be_run():
     this_path = os.path.dirname(__file__)
     parent_path = os.path.dirname(this_path)

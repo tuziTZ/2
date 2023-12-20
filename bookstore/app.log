@@ -2081,3 +2081,5 @@ INFO:werkzeug:127.0.0.1 - - [19/Dec/2023 20:47:16] "POST /book/search_all HTTP/1
 INFO:werkzeug: * Running on http://127.0.0.1:5000/ (Press CTRL+C to quit)
 INFO:werkzeug:127.0.0.1 - - [19/Dec/2023 20:47:43] "POST /book/search_all HTTP/1.1" 200 -
 INFO:werkzeug: * Running on http://127.0.0.1:5000/ (Press CTRL+C to quit)
+INFO:werkzeug: * Running on http://127.0.0.1:5000/ (Press CTRL+C to quit)
+INFO:werkzeug:127.0.0.1 - - [20/Dec/2023 19:42:07] "POST /buyer/cancel_order HTTP/1.1" 200 -

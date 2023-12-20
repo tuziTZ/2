@@ -42,7 +42,7 @@ class TestOrderStatus:
         code, self.order_id = self.b.new_order(self.store_id, buy_book_id_list)
         assert code == 200
 
-        order_info=self.b.get_order_info(self.order_id)
+        order_info = self.b.get_order_info(self.order_id)
         assert order_info['status'] == 'unpaid'
 
         self.total_price = 0
@@ -64,19 +64,19 @@ class TestOrderStatus:
         # 买家付钱
         code = self.buyer.payment(self.order_id)
         assert code == 200
-        order_info=self.b.get_order_info(self.order_id)
+        order_info = self.b.get_order_info(self.order_id)
         assert order_info['status'] == 'paid'
 
         # 买家发货
-        code = ship_order(self.store_id,self.order_id)
+        code = ship_order(self.store_id, self.order_id)
         assert code == 200
-        order_info=self.b.get_order_info(self.order_id)
+        order_info = self.b.get_order_info(self.order_id)
         assert order_info['status'] == 'shipped'
 
         # 买家收货
         code = self.b.receive_order(self.order_id)
         assert code == 200
-        order_info=self.b.get_order_info(self.order_id)
+        order_info = self.b.get_order_info(self.order_id)
         assert order_info['status'] == 'received'
 
     # 买家取消订单流程
@@ -84,11 +84,11 @@ class TestOrderStatus:
         # 买家取消订单
         code = self.b.cancel_order(self.order_id)
         assert code == 200
-        order_info=self.b.get_order_info(self.order_id)
+        order_info = self.b.get_order_info(self.order_id)
         assert order_info['status'] == 'cancelled'
 
         # 卖家发货
-        code = ship_order(self.store_id,self.order_id)
+        code = ship_order(self.store_id, self.order_id)
         assert code != 200
 
         # 买家收货
@@ -97,7 +97,7 @@ class TestOrderStatus:
 
     def test_ship_before_pay(self):
         # 卖家发货
-        code = ship_order(self.store_id,self.order_id)
+        code = ship_order(self.store_id, self.order_id)
         assert code != 200
 
         # 买家收货
@@ -112,7 +112,7 @@ class TestOrderStatus:
         # 买家付钱
         code = self.buyer.payment(self.order_id)
         assert code == 200
-        order_info=self.b.get_order_info(self.order_id)
+        order_info = self.b.get_order_info(self.order_id)
         assert order_info['status'] == 'paid'
 
         # 买家收货
@@ -123,11 +123,12 @@ class TestOrderStatus:
     def test_auto_cancel(self):
         time.sleep(125)
 
-        order_info=self.b.get_order_info(self.order_id)
+        order_info = self.b.get_order_info(self.order_id)
         assert order_info['status'] == 'cancelled'
 
-
-
+    def test_invalid_order_id_send(self):
+        code = ship_order(self.store_id, self.order_id + 'x')
+        assert code != 200
 
 
 if __name__ == "__main__":
